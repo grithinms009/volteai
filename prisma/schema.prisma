@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  bills     Bill[]
+}
+
+model Bill {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  filePath        String
+  fileType        String   // "pdf" or "image"
+  status          String   @default("pending") // pending | processing | completed | failed
+  profileType     String   @default("home")    // home | home_office | small_shop | office
+  rawText         String?  @db.Text
+  extractedFields Json?
+  analysisResult  Json?
+  confidenceLevel String?  // high | medium | low
+  paid            Boolean  @default(false)
+  reportPath      String?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
