@@ -6,14 +6,23 @@ const prisma = require('../db');
 const { billAnalysisQueue } = require('../queue');
 const config = require('../config');
 
-const uploadSchema = z.object({
-  profileType: z.enum(['home', 'home_office', 'small_shop', 'office']).default('home'),
-  userId: z.string().uuid(),
-});
+const ALLOWED_PROFILES = ['home', 'home-office', 'small-shop', 'office'];
+
+function shapeAnalysisResult(bill) {
+  if (!bill.analysisResult) return null;
+  // The worker is expected to populate analysisResult with the full schema.
+  // We just attach the `paid` flag (which lives on the Bill row) so the
+  // frontend can render the locked / unlocked state.
+  return {
+    ...bill.analysisResult,
+    paid: bill.paid,
+    confidenceLevel: bill.analysisResult.confidenceLevel || bill.confidenceLevel || 'medium',
+  };
+}
 
 async function billRoutes(fastify) {
   // POST /api/bills/upload
-  fastify.post('/upload', async (request, reply) => {
+  fastify.post('/upload', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const data = await request.file();
     if (!data) {
       return reply.code(400).send({ error: 'No file uploaded' });
@@ -25,30 +34,28 @@ async function billRoutes(fastify) {
       return reply.code(400).send({ error: 'Invalid file type. Only PDF and images allowed.' });
     }
 
-    // Since fields might come after the file in multipart, we handle them carefully
-    // In many clients they come before, but @fastify/multipart handles this via data.fields
-    const profileType = data.fields.profileType?.value || 'home';
-    const userId = data.fields.userId?.value;
-
-    if (!userId) {
-      return reply.code(400).send({ error: 'userId is required' });
+    let profileType = data.fields.profileType?.value || 'home';
+    if (!ALLOWED_PROFILES.includes(profileType)) {
+      return reply.code(400).send({ error: `profileType must be one of ${ALLOWED_PROFILES.join(', ')}` });
     }
+
+    // userId always comes from the JWT (authoritative)
+    const userId = request.user.userId;
 
     const billId = uuidv4();
     const fileName = `${billId}${ext}`;
     const filePath = path.join(config.uploadDir, fileName);
 
-    // Save file
     await new Promise((resolve, reject) => {
       const writeStream = fs.createWriteStream(filePath);
       data.file.pipe(writeStream);
-      data.file.on('end', resolve);
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
       data.file.on('error', reject);
     });
 
     const fileType = ext === '.pdf' ? 'pdf' : 'image';
 
-    // Create record
     const bill = await prisma.bill.create({
       data: {
         id: billId,
@@ -56,60 +63,95 @@ async function billRoutes(fastify) {
         filePath,
         fileType,
         profileType,
-        status: 'pending',
+        status: 'processing',
+        progress: 0,
       },
     });
 
-    // Add to queue
     await billAnalysisQueue.add('analyze-bill', { billId: bill.id });
 
-    return { billId: bill.id, status: 'pending', message: 'Analysis started' };
+    return reply.code(202).send({ billId: bill.id, status: 'processing' });
   });
 
   // GET /api/bills/:id/status
-  fastify.get('/:id/status', async (request, reply) => {
+  fastify.get('/:id/status', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { id } = request.params;
     const bill = await prisma.bill.findUnique({ where: { id } });
 
     if (!bill) {
       return reply.code(404).send({ error: 'Bill not found' });
     }
+    if (bill.userId !== request.user.userId && !request.user.isAdmin) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
 
-    let analysisResult = bill.analysisResult;
-    if (!bill.paid && analysisResult) {
-      // Partial return if not paid
-      analysisResult = {
-        savingsEstimate: analysisResult.monthlySavingsEstimate,
-        annualSavingsEstimate: analysisResult.annualSavingsEstimate,
-        efficiencyScore: analysisResult.efficiencyScore,
-        topIssues: analysisResult.topIssues?.slice(0, 2),
-        effectiveRate: analysisResult.effectiveRate,
-        usageIntensity: analysisResult.usageIntensity,
+    if (bill.status === 'failed') {
+      return {
+        billId: bill.id,
+        status: 'failed',
+        error: bill.errorMessage || 'Analysis failed',
       };
     }
 
+    if (bill.status === 'processing' || bill.status === 'pending') {
+      return {
+        billId: bill.id,
+        status: 'processing',
+        progress: bill.progress ?? 0,
+      };
+    }
+
+    // completed
     return {
       billId: bill.id,
-      status: bill.status,
-      confidenceLevel: bill.confidenceLevel,
-      analysisResult,
-      errorMessage: bill.errorMessage,
+      status: 'completed',
+      analysisResult: shapeAnalysisResult(bill),
+    };
+  });
+
+  // GET /api/bills/user/:userId
+  fastify.get('/user/:userId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const { userId } = request.params;
+    if (userId !== request.user.userId && !request.user.isAdmin) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+
+    const bills = await prisma.bill.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      bills: bills.map((b) => {
+        const a = b.analysisResult || {};
+        return {
+          id: b.id,
+          createdAt: b.createdAt.toISOString(),
+          status: b.status,
+          paid: b.paid,
+          providerName: a.providerName ?? null,
+          unitsConsumed: a.unitsConsumed ?? null,
+          monthlySavingsEstimate:
+            b.status === 'completed' ? a.monthlySavingsEstimate ?? null : null,
+        };
+      }),
     };
   });
 
   // GET /api/bills/:id
-  fastify.get('/:id', async (request, reply) => {
+  fastify.get('/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { id } = request.params;
-    const bill = await prisma.bill.findUnique({ 
-      where: { id },
-      include: { user: true }
-    });
-
+    const bill = await prisma.bill.findUnique({ where: { id } });
     if (!bill) {
       return reply.code(404).send({ error: 'Bill not found' });
     }
-
-    return bill;
+    if (bill.userId !== request.user.userId && !request.user.isAdmin) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    if (bill.status !== 'completed') {
+      return reply.code(409).send({ error: `Bill is ${bill.status}` });
+    }
+    return shapeAnalysisResult(bill);
   });
 }
 

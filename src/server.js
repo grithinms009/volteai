@@ -5,8 +5,12 @@ const fastifyStatic = require('@fastify/static');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const authPlugin = require('./auth');
+const authRoutes = require('./routes/auth');
 const billRoutes = require('./routes/bills');
 const reportRoutes = require('./routes/reports');
+const adminRoutes = require('./routes/admin');
+const paymentRoutes = require('./routes/payments');
 
 // Create required directories
 [config.uploadDir, config.reportsDir].forEach(dir => {
@@ -18,7 +22,16 @@ const reportRoutes = require('./routes/reports');
 
 // Plugins
 fastify.register(cors, {
-  origin: config.nodeEnv === 'development' ? true : false,
+  origin: (origin, cb) => {
+    // Allow same-origin / curl (no Origin header)
+    if (!origin) return cb(null, true);
+    if (config.corsOrigins.includes(origin)) return cb(null, true);
+    if (config.nodeEnv === 'development') return cb(null, true);
+    return cb(new Error('Not allowed by CORS'), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Authorization', 'Content-Type'],
 });
 
 fastify.register(multipart, {
@@ -32,9 +45,15 @@ fastify.register(fastifyStatic, {
   prefix: '/reports/',
 });
 
+// Auth decorators (authenticate, requireAdmin)
+fastify.register(authPlugin);
+
 // Routes
+fastify.register(authRoutes, { prefix: '/api/auth' });
 fastify.register(billRoutes, { prefix: '/api/bills' });
 fastify.register(reportRoutes, { prefix: '/api/reports' });
+fastify.register(adminRoutes, { prefix: '/api/admin' });
+fastify.register(paymentRoutes, { prefix: '/api/payments' });
 
 // Health check
 fastify.get('/health', async () => ({ status: 'ok' }));
