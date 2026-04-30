@@ -1,120 +1,104 @@
-const Anthropic = require('@anthropic-ai/sdk');
-const { z } = require('zod');
 const config = require('../config');
 
-const anthropic = new Anthropic({
-  apiKey: config.anthropicApiKey,
-});
+const OLLAMA_TIMEOUT_MS = 30000;
 
-const billSchema = z.object({
-  providerName: z.string().nullable(),
-  country: z.string().nullable(),
-  state: z.string().nullable(),
-  city: z.string().nullable(),
-  currency: z.string().nullable(),
-  totalAmount: z.number().nullable(),
-  unitsConsumed: z.number().nullable(),
-  billingPeriodStart: z.string().nullable(),
-  billingPeriodEnd: z.string().nullable(),
-  fixedCharge: z.number().nullable(),
-  energyCharge: z.number().nullable(),
-  taxAmount: z.number().nullable(),
-  hasPeakHours: z.boolean(),
-  hasSlabRating: z.boolean(),
-  hasDemandCharge: z.boolean(),
-  rawSlabLines: z.string().nullable(),
-});
+const DEFAULTS = {
+  providerName: null,
+  country: null,
+  state: null,
+  city: null,
+  currency: 'INR',
+  totalAmount: null,
+  unitsConsumed: null,
+  billingPeriodStart: null,
+  billingPeriodEnd: null,
+  fixedCharge: null,
+  energyCharge: null,
+  taxAmount: null,
+  hasPeakHours: false,
+  hasSlabRating: false,
+  hasDemandCharge: false,
+  rawSlabLines: null,
+};
 
-async function callOllama(rawText) {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/api/generate`, {
-      method: 'POST',
-      body: JSON.stringify({
-        model: 'phi3:mini',
-        prompt: getPrompt(rawText),
-        format: 'json',
-        stream: false,
-      }),
-    });
-    const data = await response.json();
-    return JSON.parse(data.response);
-  } catch (error) {
-    console.error(`[PARSER] Ollama error:`, error.message);
-    return null;
-  }
-}
+function buildPrompt(rawText) {
+  return `You are an electricity bill data extractor. Extract information from the bill text and return ONLY a valid JSON object with these exact keys. Use null for any fields you cannot find:
 
-async function callClaude(rawText) {
-  const response = await anthropic.messages.create({
-    model: "claude-3-5-sonnet-20241022",
-    max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: getPrompt(rawText),
-      },
-    ],
-  });
-  
-  // Extract JSON from response
-  const text = response.content[0].text;
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-}
-
-function getPrompt(rawText) {
-  return `You are an electricity bill data extractor. Extract the following fields from the bill text below.
-Return ONLY a valid JSON object with these exact keys. Use null for any field you cannot find.
-
-Fields to extract:
 {
   "providerName": string or null,
-  "country": string or null (2-letter ISO code if possible),
-  "state": string or null,
+  "country": string or null (2-letter ISO code like "IN", "US", "GB"),
+  "state": string or null (state or region name),
   "city": string or null,
-  "currency": string or null (INR/USD/GBP etc),
-  "totalAmount": number or null,
-  "unitsConsumed": number or null,
-  "billingPeriodStart": string or null (YYYY-MM-DD),
-  "billingPeriodEnd": string or null (YYYY-MM-DD),
-  "fixedCharge": number or null,
-  "energyCharge": number or null,
-  "taxAmount": number or null,
-  "hasPeakHours": boolean,
-  "hasSlabRating": boolean,
-  "hasDemandCharge": boolean,
+  "currency": string or null ("INR", "USD", "GBP", etc),
+  "totalAmount": number or null (total bill amount),
+  "unitsConsumed": number or null (kWh consumed),
+  "billingPeriodStart": string or null (YYYY-MM-DD format),
+  "billingPeriodEnd": string or null (YYYY-MM-DD format),
+  "fixedCharge": number or null (fixed component),
+  "energyCharge": number or null (variable component),
+  "taxAmount": number or null (taxes and surcharges),
+  "hasPeakHours": boolean (does bill mention peak/off-peak?),
+  "hasSlabRating": boolean (does bill have tiered rates?),
+  "hasDemandCharge": boolean (does bill have demand charges?),
   "rawSlabLines": string or null (any slab/tiered rate lines found)
 }
 
-Bill text:
-${rawText}`;
+Bill text to extract from:
+${rawText.substring(0, 2000)}`;
 }
 
 async function billParser(rawText) {
-  console.log(`[PARSER] Starting extraction...`);
-  
-  // Try Ollama first
-  let result = await callOllama(rawText);
-  
-  // Check if result is missing more than 3 key fields
-  const checkFields = ['totalAmount', 'unitsConsumed', 'currency', 'providerName', 'country'];
-  const missingCount = checkFields.filter(f => !result || result[f] === null).length;
-  
-  if (!result || missingCount > 2) {
-    console.log(`[PARSER] Ollama result insufficient (missing ${missingCount} key fields), falling back to Claude`);
-    result = await callClaude(rawText);
-  } else {
-    console.log(`[PARSER] Ollama extraction successful`);
-  }
+  console.log(`[PARSER] Starting extraction with Ollama...`);
 
-  // Validate with Zod
   try {
-    const validated = billSchema.parse(result);
-    return validated;
-  } catch (error) {
-    console.error(`[PARSER] Validation error:`, error);
-    // Return result anyway but log the error
-    return result;
+    const ollamaUrl = `${config.ollamaBaseUrl}/api/generate`;
+    const model = process.env.OLLAMA_MODEL || 'phi3:mini';
+
+    const fetchWithTimeout = () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+      return fetch(ollamaUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt: buildPrompt(rawText),
+          format: 'json',
+          stream: false,
+        }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timer));
+    };
+
+    console.log(`[PARSER] Sending to Ollama (${ollamaUrl}, model=${model})...`);
+    const response = await fetchWithTimeout();
+
+    if (!response.ok) {
+      throw new Error(`Ollama HTTP ${response.status}: ${await response.text()}`);
+    }
+
+    const data = await response.json();
+    const responseText = typeof data.response === 'string' ? data.response : JSON.stringify(data.response);
+    console.log(`[PARSER] Ollama response received`);
+
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn(`[PARSER] No JSON found in Ollama response, using defaults`);
+      return { ...DEFAULTS };
+    }
+
+    const extracted = JSON.parse(jsonMatch[0]);
+    const filledFields = Object.values(extracted).filter(v => v !== null && v !== undefined).length;
+    console.log(`[PARSER] Ollama extracted ${filledFields} fields successfully`);
+
+    return { ...DEFAULTS, ...extracted };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error(`[PARSER] Ollama timed out after ${OLLAMA_TIMEOUT_MS / 1000}s, using defaults`);
+    } else {
+      console.error(`[PARSER] Ollama error: ${err.message}, using defaults`);
+    }
+    return { ...DEFAULTS };
   }
 }
 
