@@ -21,30 +21,35 @@ const worker = new Worker('bill-analysis', async (job) => {
     const bill = await prisma.bill.findUnique({ where: { id: billId } });
     if (!bill) throw new Error('Bill not found');
 
-    // 2. Update status = processing
+    // 2. Update status = processing, progress = 10
     await prisma.bill.update({
       where: { id: billId },
-      data: { status: 'processing' }
+      data: { status: 'processing', progress: 10 }
     });
 
     // 3. Run OCR
+    console.log(`[WORKER] Running OCR...`);
     const ocrResult = await ocrPipeline(bill.filePath, bill.fileType);
     await prisma.bill.update({
       where: { id: billId },
-      data: { rawText: ocrResult.text }
+      data: { rawText: ocrResult.text, progress: 35 }
     });
 
     // 4. Run Bill Parser
+    console.log(`[WORKER] Parsing bill fields...`);
     const extractedFields = await billParser(ocrResult.text);
     await prisma.bill.update({
       where: { id: billId },
-      data: { extractedFields }
+      data: { extractedFields, progress: 60 }
     });
 
     // 5. Run Region Engine
+    console.log(`[WORKER] Matching region and tariff model...`);
     const regionResult = await regionEngine(extractedFields);
+    await prisma.bill.update({ where: { id: billId }, data: { progress: 75 } });
 
     // 6. Run Analysis Engine
+    console.log(`[WORKER] Running analysis engine...`);
     const analysisResult = await analysisEngine({
       extractedFields,
       tariffModel: regionResult.tariffModel,
@@ -54,10 +59,12 @@ const worker = new Worker('bill-analysis', async (job) => {
     });
 
     // 7. Update DB completed
+    console.log(`[WORKER] Saving results to database...`);
     await prisma.bill.update({
       where: { id: billId },
       data: {
         status: 'completed',
+        progress: 100,
         analysisResult,
         confidenceLevel: analysisResult.confidenceLevel || ocrResult.confidence,
       }
@@ -68,17 +75,21 @@ const worker = new Worker('bill-analysis', async (job) => {
       await generateReport(bill, analysisResult);
     }
 
-    console.log(`[WORKER] Bill ${billId} completed successfully`);
+    console.log(`[WORKER] ✓ Bill ${billId} analysis completed successfully`);
 
   } catch (error) {
-    console.error(`[WORKER] Bill ${billId} failed:`, error.message);
-    await prisma.bill.update({
-      where: { id: billId },
-      data: {
-        status: 'failed',
-        errorMessage: error.message
-      }
-    });
+    console.error(`[WORKER] ✗ Bill ${billId} failed:`, error.message);
+    try {
+      await prisma.bill.update({
+        where: { id: billId },
+        data: {
+          status: 'failed',
+          errorMessage: error.message
+        }
+      });
+    } catch (dbErr) {
+      console.error(`[WORKER] Failed to update bill status in DB:`, dbErr.message);
+    }
     throw error; // Re-throw for BullMQ retries
   }
 }, {
@@ -99,3 +110,18 @@ worker.on('completed', (job) => {
 });
 
 console.log('[WORKER] Analysis worker started and waiting for jobs...');
+
+process.on('SIGTERM', async () => {
+  console.log('[WORKER] Shutting down gracefully...');
+  await worker.close();
+  await redisConnection.disconnect();
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  await worker.close();
+  await redisConnection.disconnect();
+  await prisma.$disconnect();
+  process.exit(0);
+});

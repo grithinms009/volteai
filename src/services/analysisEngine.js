@@ -1,7 +1,17 @@
 async function analysisEngine({ extractedFields, tariffModel, effectiveRate, regionDefaults, profileType }) {
   console.log(`[ANALYSIS] Starting math computations...`);
 
-  const { totalAmount, unitsConsumed, fixedCharge, taxAmount, currency } = extractedFields;
+  const {
+    totalAmount,
+    unitsConsumed: rawUnits,
+    fixedCharge: rawFixed,
+    taxAmount: rawTax,
+    currency,
+    providerName,
+  } = extractedFields;
+  const unitsConsumed = rawUnits || 0;
+  const fixedCharge = rawFixed || 0;
+  const taxAmount = rawTax || 0;
   const resRate = regionDefaults.residentialRate;
 
   // 1. EFFECTIVE RATE COMPARISON
@@ -12,12 +22,12 @@ async function analysisEngine({ extractedFields, tariffModel, effectiveRate, reg
 
   // 2. USAGE INTENSITY
   let profileMultiplier = 1.0;
-  if (profileType === 'home_office') profileMultiplier = 1.3;
-  else if (profileType === 'small_shop') profileMultiplier = 2.0;
+  if (profileType === 'home-office' || profileType === 'home_office') profileMultiplier = 1.3;
+  else if (profileType === 'small-shop' || profileType === 'small_shop') profileMultiplier = 2.0;
   else if (profileType === 'office') profileMultiplier = 3.0;
 
   const avgUnits = regionDefaults.avgMonthlyUnitsHome * profileMultiplier;
-  const usageRatio = unitsConsumed / avgUnits;
+  const usageRatio = avgUnits > 0 && unitsConsumed > 0 ? unitsConsumed / avgUnits : 1;
   let usageIntensity = 'medium';
   if (usageRatio < 0.8) usageIntensity = 'low';
   else if (usageRatio > 1.2) usageIntensity = 'high';
@@ -29,10 +39,10 @@ async function analysisEngine({ extractedFields, tariffModel, effectiveRate, reg
   
   if (usageIntensity === 'high') score -= 20;
 
-  const fixedChargePct = (fixedCharge / totalAmount) * 100;
+  const fixedChargePct = totalAmount > 0 ? (fixedCharge / totalAmount) * 100 : 0;
   if (fixedChargePct > 30) score -= 10;
 
-  const taxPct = (taxAmount / totalAmount) * 100;
+  const taxPct = totalAmount > 0 ? (taxAmount / totalAmount) * 100 : 0;
   if (taxPct > 20) score -= 5;
   
   const efficiencyScore = Math.max(0, score);
@@ -111,8 +121,10 @@ async function analysisEngine({ extractedFields, tariffModel, effectiveRate, reg
     topIssues,
     recommendations,
     tariffModel,
+    providerName: providerName || null,
+    unitsConsumed: rawUnits || null,
     dataSource: 'computed',
-    confidenceLevel: score > 70 ? 'high' : 'medium'
+    confidenceLevel: score > 70 ? 'high' : score > 40 ? 'medium' : 'low'
   };
 }
 

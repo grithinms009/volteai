@@ -6,9 +6,9 @@ async function regionEngine(extractedFields) {
   
   // Step 1 - Detect tariff model
   let tariffModel = 'flat';
-  if (extractedFields.hasSlabRating) tariffModel = 'slab';
-  else if (extractedFields.hasPeakHours) tariffModel = 'tou';
-  else if (extractedFields.hasDemandCharge) tariffModel = 'demand';
+  if (extractedFields.hasSlabRating) tariffModel = 'tiered';
+  else if (extractedFields.hasPeakHours) tariffModel = 'tod';
+  else if (extractedFields.hasDemandCharge) tariffModel = 'tiered';
 
   // Step 2 - Get effective rate
   let effectiveRate = 0;

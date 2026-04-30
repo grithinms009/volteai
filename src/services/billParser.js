@@ -1,4 +1,3 @@
-const { ollama } = require('ollama');
 const Anthropic = require('@anthropic-ai/sdk');
 const { z } = require('zod');
 const config = require('../config');
