@@ -22,16 +22,10 @@ const paymentRoutes = require('./routes/payments');
 
 // Plugins
 fastify.register(cors, {
-  origin: (origin, cb) => {
-    // Allow same-origin / curl (no Origin header)
-    if (!origin) return cb(null, true);
-    if (config.corsOrigins.includes(origin)) return cb(null, true);
-    if (config.nodeEnv === 'development') return cb(null, true);
-    return cb(new Error('Not allowed by CORS'), false);
-  },
+  origin: '*',
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 });
 
 fastify.register(multipart, {
