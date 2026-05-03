@@ -22,10 +22,11 @@ const paymentRoutes = require('./routes/payments');
 
 // Plugins
 fastify.register(cors, {
-  origin: '*',
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  maxAge: 86400,
 });
 
 fastify.register(multipart, {
