@@ -7,6 +7,107 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Country {
+  id           String     @id @default(uuid())
+  code         String     @unique // IN, US, GB, etc.
+  name         String     // India, United States, etc.
+  currency     String     // INR, USD, GBP
+  currencySymbol String   // ₹, $, £
+  defaultRate  Float      @default(0) // Default residential rate
+  avgMonthlyUnits Int     @default(200)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  states       State[]
+  providers    Provider[]
+}
+
+model State {
+  id           String     @id @default(uuid())
+  code         String     // KL, MH, KA, CA, TX
+  name         String     // Kerala, Maharashtra, California
+  countryId    String
+  country      Country    @relation(fields: [countryId], references: [id])
+  avgMonthlyUnits Int     @default(200)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  providers    Provider[]
+
+  @@unique([countryId, code])
+}
+
+model Provider {
+  id              String   @id @default(uuid())
+  code            String   @unique // kseb, msedcl, bescom
+  name            String   // Kerala State Electricity Board
+  shortName       String?  // KSEB
+  aliases         String[] // ["KSEB", "KSEBL", "Kerala Electricity"]
+  countryId       String
+  country         Country  @relation(fields: [countryId], references: [id])
+  stateId         String
+  state           State    @relation(fields: [stateId], references: [id])
+  tariffType      String   @default("tiered") // tiered, flat, tod
+  currency        String   @default("INR")
+  fuelSurchargePerUnit Float @default(0)
+  electricityDutyPct   Float @default(0)
+  avgMonthlyUnits Int     @default(200)
+  peakHoursStart  String?  // "18:00"
+  peakHoursEnd    String?  // "22:00"
+  peakMultiplier  Float?   // 1.5
+  subsidyInfo     String?  @db.Text
+  websiteUrl      String?
+  logoUrl         String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  slabs           TariffSlab[]
+  fixedCharges    FixedCharge[]
+  tips            ProviderTip[]
+}
+
+model TariffSlab {
+  id          String   @id @default(uuid())
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  minUnits    Int
+  maxUnits    Int?     // null = unlimited
+  rate        Float    // Rate per unit
+  label       String   // "0-50 units"
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([providerId, sortOrder])
+}
+
+model FixedCharge {
+  id          String   @id @default(uuid())
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  minUnits    Int
+  maxUnits    Int?     // null = unlimited
+  charge      Float    // Fixed charge amount
+  label       String?  // "0-50 units"
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([providerId, sortOrder])
+}
+
+model ProviderTip {
+  id          String   @id @default(uuid())
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  tip         String   @db.Text
+  category    String?  // savings, solar, peak_hours, general
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([providerId, sortOrder])
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique

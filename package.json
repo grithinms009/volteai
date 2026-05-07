@@ -8,6 +8,9 @@
     "worker": "node src/workers/analysisWorker.js",
     "dev": "node --watch src/server.js",
     "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "node prisma/seed.js",
+    "db:reset": "prisma migrate reset --force && node prisma/seed.js",
     "db:studio": "prisma studio"
   },
   "dependencies": {
