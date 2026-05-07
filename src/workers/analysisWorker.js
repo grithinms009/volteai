@@ -13,8 +13,8 @@ const redisConnection = new Redis(config.redisUrl, {
 });
 
 const worker = new Worker('bill-analysis', async (job) => {
-  const { billId } = job.data;
-  console.log(`[WORKER] Processing bill: ${billId}`);
+  const { billId, providerId: hintProviderId, countryCode: hintCountryCode } = job.data;
+  console.log(`[WORKER] Processing bill: ${billId} (provider hint: ${hintProviderId || 'none'})`);
 
   try {
     // 1. Fetch bill
@@ -38,6 +38,15 @@ const worker = new Worker('bill-analysis', async (job) => {
     // 4. Run Bill Parser
     console.log(`[WORKER] Parsing bill fields...`);
     const extractedFields = await billParser(ocrResult.text);
+    
+    // Apply hints from frontend if AI didn't detect
+    if (hintProviderId && !extractedFields.providerId) {
+      extractedFields.providerId = hintProviderId;
+    }
+    if (hintCountryCode && !extractedFields.countryCode) {
+      extractedFields.countryCode = hintCountryCode;
+    }
+    
     await prisma.bill.update({
       where: { id: billId },
       data: { extractedFields, progress: 60 }
@@ -55,7 +64,10 @@ const worker = new Worker('bill-analysis', async (job) => {
       tariffModel: regionResult.tariffModel,
       effectiveRate: regionResult.effectiveRate,
       regionDefaults: regionResult.regionDefaults,
-      profileType: bill.profileType
+      profileType: bill.profileType,
+      provider: regionResult.provider,
+      calculatedBill: regionResult.calculatedBill,
+      slabOptimization: regionResult.slabOptimization
     });
 
     // 7. Update DB completed

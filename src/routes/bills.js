@@ -39,6 +39,10 @@ async function billRoutes(fastify) {
       return reply.code(400).send({ error: `profileType must be one of ${ALLOWED_PROFILES.join(', ')}` });
     }
 
+    // Provider selection (optional - AI will detect if not provided)
+    const providerId = data.fields.providerId?.value || null;
+    const countryCode = data.fields.countryCode?.value || 'IN';
+
     // userId always comes from the JWT (authoritative)
     const userId = request.user.userId;
 
@@ -68,7 +72,11 @@ async function billRoutes(fastify) {
       },
     });
 
-    await billAnalysisQueue.add('analyze-bill', { billId: bill.id });
+    await billAnalysisQueue.add('analyze-bill', { 
+      billId: bill.id,
+      providerId,
+      countryCode
+    });
 
     return reply.code(202).send({ billId: bill.id, status: 'processing' });
   });

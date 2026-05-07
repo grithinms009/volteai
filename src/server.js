@@ -11,6 +11,7 @@ const billRoutes = require('./routes/bills');
 const reportRoutes = require('./routes/reports');
 const adminRoutes = require('./routes/admin');
 const paymentRoutes = require('./routes/payments');
+const providerRoutes = require('./routes/providers');
 
 // Create required directories
 [config.uploadDir, config.reportsDir].forEach(dir => {
@@ -49,6 +50,7 @@ fastify.register(billRoutes, { prefix: '/api/bills' });
 fastify.register(reportRoutes, { prefix: '/api/reports' });
 fastify.register(adminRoutes, { prefix: '/api/admin' });
 fastify.register(paymentRoutes, { prefix: '/api/payments' });
+fastify.register(providerRoutes, { prefix: '/api/providers' });
 
 // Health check
 fastify.get('/health', async () => ({ status: 'ok' }));
