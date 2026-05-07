@@ -153,6 +153,31 @@ async function billRoutes(fastify) {
     }
     return shapeAnalysisResult(bill);
   });
+
+  // POST /api/bills/:id/bypass-payment (DEV ONLY)
+  // Sets paid=true without actual payment - for testing purposes
+  fastify.post('/:id/bypass-payment', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    if (config.nodeEnv !== 'development') {
+      return reply.code(403).send({ error: 'Payment bypass only available in development mode' });
+    }
+
+    const { id } = request.params;
+    const bill = await prisma.bill.findUnique({ where: { id } });
+
+    if (!bill) {
+      return reply.code(404).send({ error: 'Bill not found' });
+    }
+    if (bill.userId !== request.user.userId && !request.user.isAdmin) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+
+    const updated = await prisma.bill.update({
+      where: { id },
+      data: { paid: true },
+    });
+
+    return { success: true, billId: id, paid: updated.paid };
+  });
 }
 
 module.exports = billRoutes;
