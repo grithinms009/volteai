@@ -87,6 +87,74 @@ async function main() {
 
   console.log('✅ Indian states created');
 
+  // ============ US STATES ============
+  const usStates = [
+    { code: 'CA', name: 'California', avgMonthlyUnits: 550 },
+    { code: 'TX', name: 'Texas', avgMonthlyUnits: 1200 },
+    { code: 'FL', name: 'Florida', avgMonthlyUnits: 1100 },
+    { code: 'NY', name: 'New York', avgMonthlyUnits: 600 },
+    { code: 'PA', name: 'Pennsylvania', avgMonthlyUnits: 850 },
+    { code: 'IL', name: 'Illinois', avgMonthlyUnits: 750 },
+    { code: 'OH', name: 'Ohio', avgMonthlyUnits: 900 },
+    { code: 'GA', name: 'Georgia', avgMonthlyUnits: 1100 },
+    { code: 'NC', name: 'North Carolina', avgMonthlyUnits: 1050 },
+    { code: 'MI', name: 'Michigan', avgMonthlyUnits: 650 },
+    { code: 'NJ', name: 'New Jersey', avgMonthlyUnits: 680 },
+    { code: 'VA', name: 'Virginia', avgMonthlyUnits: 1100 },
+    { code: 'WA', name: 'Washington', avgMonthlyUnits: 950 },
+    { code: 'AZ', name: 'Arizona', avgMonthlyUnits: 1050 },
+    { code: 'MA', name: 'Massachusetts', avgMonthlyUnits: 600 },
+    { code: 'TN', name: 'Tennessee', avgMonthlyUnits: 1200 },
+    { code: 'IN', name: 'Indiana', avgMonthlyUnits: 950 },
+    { code: 'MO', name: 'Missouri', avgMonthlyUnits: 1050 },
+    { code: 'MD', name: 'Maryland', avgMonthlyUnits: 1000 },
+    { code: 'CO', name: 'Colorado', avgMonthlyUnits: 700 },
+  ];
+
+  const usStateMap = {};
+  for (const state of usStates) {
+    const created = await prisma.state.create({
+      data: {
+        code: state.code,
+        name: state.name,
+        countryId: usa.id,
+        avgMonthlyUnits: state.avgMonthlyUnits,
+      }
+    });
+    usStateMap[state.code] = created;
+  }
+
+  console.log('✅ US states created');
+
+  // ============ UK REGIONS ============
+  const ukRegions = [
+    { code: 'ENG', name: 'England', avgMonthlyUnits: 280 },
+    { code: 'SCT', name: 'Scotland', avgMonthlyUnits: 320 },
+    { code: 'WLS', name: 'Wales', avgMonthlyUnits: 300 },
+    { code: 'NIR', name: 'Northern Ireland', avgMonthlyUnits: 310 },
+    { code: 'LON', name: 'London', avgMonthlyUnits: 250 },
+    { code: 'MAN', name: 'Manchester', avgMonthlyUnits: 290 },
+    { code: 'BIR', name: 'Birmingham', avgMonthlyUnits: 285 },
+    { code: 'LIV', name: 'Liverpool', avgMonthlyUnits: 295 },
+    { code: 'LEE', name: 'Leeds', avgMonthlyUnits: 280 },
+    { code: 'GLA', name: 'Glasgow', avgMonthlyUnits: 330 },
+  ];
+
+  const ukRegionMap = {};
+  for (const region of ukRegions) {
+    const created = await prisma.state.create({
+      data: {
+        code: region.code,
+        name: region.name,
+        countryId: uk.id,
+        avgMonthlyUnits: region.avgMonthlyUnits,
+      }
+    });
+    ukRegionMap[region.code] = created;
+  }
+
+  console.log('✅ UK regions created');
+
   // ============ INDIAN PROVIDERS ============
   
   // KSEB - Kerala
@@ -697,10 +765,291 @@ async function main() {
 
   console.log('✅ TSSPDCL (Telangana) created');
 
+  // ============ US PROVIDERS ============
+
+  // PG&E - California
+  const pge = await prisma.provider.create({
+    data: {
+      code: 'pge',
+      name: 'Pacific Gas and Electric Company',
+      shortName: 'PG&E',
+      aliases: ['PG&E', 'Pacific Gas', 'PGE California'],
+      countryId: usa.id,
+      stateId: usStateMap['CA'].id,
+      tariffType: 'tiered',
+      currency: 'USD',
+      fuelSurchargePerUnit: 0,
+      electricityDutyPct: 0,
+      avgMonthlyUnits: 550,
+      peakHoursStart: '16:00',
+      peakHoursEnd: '21:00',
+      peakMultiplier: 1.5,
+      subsidyInfo: 'CARE program offers 20% discount for low-income households. FERA offers 18% discount.',
+      websiteUrl: 'https://www.pge.com/',
+    }
+  });
+
+  const pgeSlabs = [
+    { minUnits: 0, maxUnits: 400, rate: 0.25, label: 'Baseline (0-400 kWh)' },
+    { minUnits: 401, maxUnits: null, rate: 0.35, label: 'Over Baseline (400+ kWh)' },
+  ];
+
+  for (let i = 0; i < pgeSlabs.length; i++) {
+    await prisma.tariffSlab.create({
+      data: { ...pgeSlabs[i], providerId: pge.id, sortOrder: i }
+    });
+  }
+
+  const pgeFixed = [
+    { minUnits: 0, maxUnits: null, charge: 10, label: 'Monthly service fee' },
+  ];
+
+  for (let i = 0; i < pgeFixed.length; i++) {
+    await prisma.fixedCharge.create({
+      data: { ...pgeFixed[i], providerId: pge.id, sortOrder: i }
+    });
+  }
+
+  const pgeTips = [
+    { tip: 'Stay within baseline allocation (400 kWh) to avoid higher tier rates.', category: 'savings' },
+    { tip: 'Peak hours are 4PM-9PM - shift heavy usage to off-peak for ToU plans.', category: 'peak_hours' },
+    { tip: 'California offers generous solar incentives - NEM 3.0 available.', category: 'solar' },
+  ];
+
+  for (let i = 0; i < pgeTips.length; i++) {
+    await prisma.providerTip.create({
+      data: { ...pgeTips[i], providerId: pge.id, sortOrder: i }
+    });
+  }
+
+  console.log('✅ PG&E (California) created');
+
+  // ConEd - New York
+  const coned = await prisma.provider.create({
+    data: {
+      code: 'coned',
+      name: 'Consolidated Edison',
+      shortName: 'Con Edison',
+      aliases: ['ConEd', 'Con Edison', 'Consolidated Edison'],
+      countryId: usa.id,
+      stateId: usStateMap['NY'].id,
+      tariffType: 'flat',
+      currency: 'USD',
+      fuelSurchargePerUnit: 0.02,
+      electricityDutyPct: 2.5,
+      avgMonthlyUnits: 600,
+      peakHoursStart: '14:00',
+      peakHoursEnd: '18:00',
+      peakMultiplier: 1.3,
+      subsidyInfo: 'Low Income Program offers bill credits. Energy Affordability Program available.',
+      websiteUrl: 'https://www.coned.com/',
+    }
+  });
+
+  const conedSlabs = [
+    { minUnits: 0, maxUnits: null, rate: 0.22, label: 'Standard Rate' },
+  ];
+
+  for (let i = 0; i < conedSlabs.length; i++) {
+    await prisma.tariffSlab.create({
+      data: { ...conedSlabs[i], providerId: coned.id, sortOrder: i }
+    });
+  }
+
+  const conedFixed = [
+    { minUnits: 0, maxUnits: null, charge: 16, label: 'Basic service charge' },
+  ];
+
+  for (let i = 0; i < conedFixed.length; i++) {
+    await prisma.fixedCharge.create({
+      data: { ...conedFixed[i], providerId: coned.id, sortOrder: i }
+    });
+  }
+
+  const conedTips = [
+    { tip: 'NYC has high electricity rates - focus on efficiency upgrades.', category: 'savings' },
+    { tip: 'ConEd offers rebates for smart thermostats and efficient appliances.', category: 'appliance' },
+    { tip: 'Consider community solar if rooftop installation is not possible.', category: 'solar' },
+  ];
+
+  for (let i = 0; i < conedTips.length; i++) {
+    await prisma.providerTip.create({
+      data: { ...conedTips[i], providerId: coned.id, sortOrder: i }
+    });
+  }
+
+  console.log('✅ Con Edison (New York) created');
+
+  // TXU Energy - Texas
+  const txu = await prisma.provider.create({
+    data: {
+      code: 'txu',
+      name: 'TXU Energy',
+      shortName: 'TXU',
+      aliases: ['TXU', 'TXU Energy', 'Texas Utilities'],
+      countryId: usa.id,
+      stateId: usStateMap['TX'].id,
+      tariffType: 'flat',
+      currency: 'USD',
+      fuelSurchargePerUnit: 0,
+      electricityDutyPct: 0,
+      avgMonthlyUnits: 1200,
+      subsidyInfo: 'Texas has deregulated market - shop for best rates. LITE-UP Texas for low-income.',
+      websiteUrl: 'https://www.txu.com/',
+    }
+  });
+
+  const txuSlabs = [
+    { minUnits: 0, maxUnits: null, rate: 0.11, label: 'Fixed Rate Plan' },
+  ];
+
+  for (let i = 0; i < txuSlabs.length; i++) {
+    await prisma.tariffSlab.create({
+      data: { ...txuSlabs[i], providerId: txu.id, sortOrder: i }
+    });
+  }
+
+  const txuFixed = [
+    { minUnits: 0, maxUnits: null, charge: 9.95, label: 'Base charge' },
+  ];
+
+  for (let i = 0; i < txuFixed.length; i++) {
+    await prisma.fixedCharge.create({
+      data: { ...txuFixed[i], providerId: txu.id, sortOrder: i }
+    });
+  }
+
+  const txuTips = [
+    { tip: 'Texas is deregulated - compare rates at PowerToChoose.org.', category: 'savings' },
+    { tip: 'Lock in fixed rates before summer when prices spike.', category: 'savings' },
+    { tip: 'Texas has excellent solar potential - no state income tax on solar savings.', category: 'solar' },
+  ];
+
+  for (let i = 0; i < txuTips.length; i++) {
+    await prisma.providerTip.create({
+      data: { ...txuTips[i], providerId: txu.id, sortOrder: i }
+    });
+  }
+
+  console.log('✅ TXU Energy (Texas) created');
+
+  // ============ UK PROVIDERS ============
+
+  // British Gas
+  const britishGas = await prisma.provider.create({
+    data: {
+      code: 'british_gas',
+      name: 'British Gas',
+      shortName: 'British Gas',
+      aliases: ['British Gas', 'Centrica', 'BG'],
+      countryId: uk.id,
+      stateId: ukRegionMap['ENG'].id,
+      tariffType: 'flat',
+      currency: 'GBP',
+      fuelSurchargePerUnit: 0,
+      electricityDutyPct: 5,
+      avgMonthlyUnits: 280,
+      subsidyInfo: 'Warm Home Discount provides £150 rebate. Priority Services Register available.',
+      websiteUrl: 'https://www.britishgas.co.uk/',
+    }
+  });
+
+  const bgSlabs = [
+    { minUnits: 0, maxUnits: null, rate: 0.28, label: 'Standard Variable Rate' },
+  ];
+
+  for (let i = 0; i < bgSlabs.length; i++) {
+    await prisma.tariffSlab.create({
+      data: { ...bgSlabs[i], providerId: britishGas.id, sortOrder: i }
+    });
+  }
+
+  const bgFixed = [
+    { minUnits: 0, maxUnits: null, charge: 0.50, label: 'Daily standing charge' },
+  ];
+
+  for (let i = 0; i < bgFixed.length; i++) {
+    await prisma.fixedCharge.create({
+      data: { ...bgFixed[i], providerId: britishGas.id, sortOrder: i }
+    });
+  }
+
+  const bgTips = [
+    { tip: 'UK energy prices are capped - check Ofgem price cap rates.', category: 'savings' },
+    { tip: 'Switch to a fixed tariff to protect against price increases.', category: 'savings' },
+    { tip: 'Smart Export Guarantee (SEG) pays for solar exports.', category: 'solar' },
+  ];
+
+  for (let i = 0; i < bgTips.length; i++) {
+    await prisma.providerTip.create({
+      data: { ...bgTips[i], providerId: britishGas.id, sortOrder: i }
+    });
+  }
+
+  console.log('✅ British Gas (UK) created');
+
+  // Octopus Energy
+  const octopus = await prisma.provider.create({
+    data: {
+      code: 'octopus',
+      name: 'Octopus Energy',
+      shortName: 'Octopus',
+      aliases: ['Octopus', 'Octopus Energy'],
+      countryId: uk.id,
+      stateId: ukRegionMap['ENG'].id,
+      tariffType: 'flat',
+      currency: 'GBP',
+      fuelSurchargePerUnit: 0,
+      electricityDutyPct: 5,
+      avgMonthlyUnits: 280,
+      peakHoursStart: '16:00',
+      peakHoursEnd: '19:00',
+      peakMultiplier: 1.4,
+      subsidyInfo: 'Agile tariff offers variable rates. Go tariff for EV owners.',
+      websiteUrl: 'https://octopus.energy/',
+    }
+  });
+
+  const octopusSlabs = [
+    { minUnits: 0, maxUnits: null, rate: 0.24, label: 'Flexible Octopus Rate' },
+  ];
+
+  for (let i = 0; i < octopusSlabs.length; i++) {
+    await prisma.tariffSlab.create({
+      data: { ...octopusSlabs[i], providerId: octopus.id, sortOrder: i }
+    });
+  }
+
+  const octopusFixed = [
+    { minUnits: 0, maxUnits: null, charge: 0.47, label: 'Daily standing charge' },
+  ];
+
+  for (let i = 0; i < octopusFixed.length; i++) {
+    await prisma.fixedCharge.create({
+      data: { ...octopusFixed[i], providerId: octopus.id, sortOrder: i }
+    });
+  }
+
+  const octopusTips = [
+    { tip: 'Octopus Agile tariff can save money if you shift usage to off-peak.', category: 'peak_hours' },
+    { tip: 'Octopus Go is excellent for EV owners - cheap overnight charging.', category: 'savings' },
+    { tip: 'Refer friends to earn £50 credit each.', category: 'general' },
+  ];
+
+  for (let i = 0; i < octopusTips.length; i++) {
+    await prisma.providerTip.create({
+      data: { ...octopusTips[i], providerId: octopus.id, sortOrder: i }
+    });
+  }
+
+  console.log('✅ Octopus Energy (UK) created');
+
   console.log('\n🎉 Database seeding completed!');
   console.log(`   - 3 Countries`);
   console.log(`   - ${indianStates.length} Indian States`);
-  console.log(`   - 10 Electricity Providers with tariffs, fixed charges, and tips`);
+  console.log(`   - ${usStates.length} US States`);
+  console.log(`   - ${ukRegions.length} UK Regions`);
+  console.log(`   - 15 Electricity Providers with tariffs, fixed charges, and tips`);
 }
 
 main()
