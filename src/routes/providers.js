@@ -11,7 +11,7 @@ async function providerRoutes(fastify) {
       where: { code: country.toUpperCase() },
       include: {
         states: {
-          where: { isActive: true },
+          where: { isActive: true, providers: { some: {} } },
           orderBy: { name: 'asc' }
         }
       }
