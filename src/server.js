@@ -21,6 +21,21 @@ const providerRoutes = require('./routes/providers');
   }
 });
 
+// Override built-in JSON parser to accept empty bodies (POST routes without a body
+// e.g. /bypass-payment would otherwise get 400 FST_ERR_CTP_EMPTY_JSON_BODY)
+fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+  if (!body || body.trim() === '') {
+    done(null, {});
+    return;
+  }
+  try {
+    done(null, JSON.parse(body));
+  } catch (err) {
+    err.statusCode = 400;
+    done(err);
+  }
+});
+
 // Plugins
 fastify.register(cors, {
   origin: true,
