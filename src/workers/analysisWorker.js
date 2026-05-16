@@ -5,7 +5,7 @@ const config = require('../config');
 const { ocrPipeline } = require('../services/ocr');
 const { billParser } = require('../services/billParser');
 const { regionEngine } = require('../services/regionEngine');
-const { analysisEngine } = require('../services/analysisEngine');
+const { runFullAnalysis } = require('../services/analysisOrchestrator');
 const { generateReport } = require('../services/reportGenerator');
 
 const redisConnection = new Redis(config.redisUrl, {
@@ -57,9 +57,9 @@ const worker = new Worker('bill-analysis', async (job) => {
     const regionResult = await regionEngine(extractedFields);
     await prisma.bill.update({ where: { id: billId }, data: { progress: 75 } });
 
-    // 6. Run Analysis Engine
-    console.log(`[WORKER] Running analysis engine...`);
-    const analysisResult = await analysisEngine({
+    // 6. Run Full Analysis (10-engine orchestrator)
+    console.log(`[WORKER] Running full analysis orchestrator...`);
+    const analysisResult = await runFullAnalysis({
       extractedFields,
       tariffModel: regionResult.tariffModel,
       effectiveRate: regionResult.effectiveRate,
@@ -67,7 +67,8 @@ const worker = new Worker('bill-analysis', async (job) => {
       profileType: bill.profileType,
       provider: regionResult.provider,
       calculatedBill: regionResult.calculatedBill,
-      slabOptimization: regionResult.slabOptimization
+      slabOptimization: regionResult.slabOptimization,
+      userId: bill.userId
     });
 
     // 7. Update DB completed

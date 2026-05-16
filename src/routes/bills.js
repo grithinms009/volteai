@@ -81,6 +81,52 @@ async function billRoutes(fastify) {
     return reply.code(202).send({ billId: bill.id, status: 'processing' });
   });
 
+  // GET /api/bills/:id/analysis - Full 50+ metric analysis response
+  fastify.get('/:id/analysis', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const { id } = request.params;
+    const bill = await prisma.bill.findUnique({ where: { id } });
+
+    if (!bill) {
+      return reply.code(404).send({ error: 'Bill not found' });
+    }
+    if (bill.userId !== request.user.userId && !request.user.isAdmin) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+
+    if (bill.status === 'processing' || bill.status === 'pending') {
+      return reply.code(202).send({
+        billId: id,
+        status: 'processing',
+        progress: bill.progress ?? 0,
+        message: 'Analysis in progress — poll again shortly'
+      });
+    }
+
+    if (bill.status === 'failed') {
+      return reply.code(422).send({
+        billId: id,
+        status: 'failed',
+        error: bill.errorMessage || 'Analysis failed'
+      });
+    }
+
+    if (!bill.analysisResult) {
+      return reply.code(404).send({ error: 'Analysis not yet available' });
+    }
+
+    return {
+      billId: id,
+      status: 'completed',
+      paid: bill.paid,
+      confidence: bill.confidenceLevel || bill.analysisResult.confidenceLevel || 'medium',
+      analysisDate: bill.analysisResult.analysisDate || bill.updatedAt,
+      analysis: {
+        ...bill.analysisResult,
+        paid: bill.paid
+      }
+    };
+  });
+
   // GET /api/bills/:id/status
   fastify.get('/:id/status', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { id } = request.params;
@@ -143,6 +189,53 @@ async function billRoutes(fastify) {
             b.status === 'completed' ? a.monthlySavingsEstimate ?? null : null,
         };
       }),
+    };
+  });
+
+  // GET /api/bills/:id/summary - Lightweight key-metric summary
+  fastify.get('/:id/summary', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const { id } = request.params;
+    const bill = await prisma.bill.findUnique({ where: { id } });
+
+    if (!bill) {
+      return reply.code(404).send({ error: 'Bill not found' });
+    }
+    if (bill.userId !== request.user.userId && !request.user.isAdmin) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    if (bill.status !== 'completed' || !bill.analysisResult) {
+      return {
+        billId: id,
+        status: bill.status,
+        progress: bill.progress ?? 0,
+        paid: bill.paid
+      };
+    }
+
+    const a = bill.analysisResult;
+    return {
+      billId: id,
+      status: 'completed',
+      paid: bill.paid,
+      confidence: bill.confidenceLevel || a.confidenceLevel || 'medium',
+      summary: {
+        providerName: a.providerName || null,
+        unitsConsumed: a.unitsConsumed || null,
+        totalAmount: a.totalAmount || null,
+        effectiveRate: a.effectiveRate || null,
+        efficiencyScore: a.efficiencyScore || null,
+        rateStatus: a.rateStatus || null,
+        usageIntensity: a.usageIntensity || null,
+        dailyUnits: a.dailyUnits || null,
+        monthlySavingsEstimate: a.monthlySavingsEstimate || null,
+        annualSavingsEstimate: a.annualSavingsEstimate || null,
+        topRecommendations: a.topRecommendations?.slice(0, 3) || a.recommendationsDetailed?.slice(0, 3) || [],
+        alerts: a.alerts || [],
+        billHealthScore: a.billAccuracy?.billHealthScore || null,
+        tariffModel: a.tariffModel || null,
+        analysisVersion: a.analysisVersion || null,
+        analysisDate: a.analysisDate || bill.updatedAt
+      }
     };
   });
 
