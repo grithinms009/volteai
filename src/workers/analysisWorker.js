@@ -7,6 +7,8 @@ const { billParser } = require('../services/billParser');
 const { regionEngine } = require('../services/regionEngine');
 const { runFullAnalysis } = require('../services/analysisOrchestrator');
 const { generateReport } = require('../services/reportGenerator');
+const { extractWithOllamaVision, isVisionUseful } = require('../services/ollamaVision');
+const { generateNarrative } = require('../services/billNarrator');
 
 const redisConnection = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null,
@@ -27,17 +29,42 @@ const worker = new Worker('bill-analysis', async (job) => {
       data: { status: 'processing', progress: 10 }
     });
 
-    // 3. Run OCR
-    console.log(`[WORKER] Running OCR...`);
-    const ocrResult = await ocrPipeline(bill.filePath, bill.fileType);
-    await prisma.bill.update({
-      where: { id: billId },
-      data: { rawText: ocrResult.text, progress: 35 }
-    });
+    // 3. Vision-first extraction for image files
+    let extractedFields = null;
+    const isImage = bill.fileType === 'image' || /\.(jpe?g|png|webp)$/i.test(bill.filePath);
 
-    // 4. Run Bill Parser
-    console.log(`[WORKER] Parsing bill fields...`);
-    const extractedFields = await billParser(ocrResult.text);
+    if (isImage) {
+      console.log(`[WORKER] Image detected — trying Ollama vision extraction first...`);
+      try {
+        const visionResult = await extractWithOllamaVision(bill.filePath);
+        if (isVisionUseful(visionResult)) {
+          console.log(`[WORKER] Vision extraction succeeded — skipping OCR text pipeline`);
+          extractedFields = visionResult;
+          extractedFields.extractionMethod = 'ollama-vision';
+          await prisma.bill.update({
+            where: { id: billId },
+            data: { rawText: '[extracted via vision model]', progress: 60 }
+          });
+        } else {
+          console.log(`[WORKER] Vision result insufficient — falling back to OCR pipeline`);
+        }
+      } catch (vErr) {
+        console.warn(`[WORKER] Vision extraction failed: ${vErr.message} — falling back to OCR`);
+      }
+    }
+
+    // 4. OCR + billParser fallback (always used for PDFs, fallback for images)
+    if (!extractedFields) {
+      console.log(`[WORKER] Running OCR pipeline...`);
+      const ocrResult = await ocrPipeline(bill.filePath, bill.fileType);
+      await prisma.bill.update({
+        where: { id: billId },
+        data: { rawText: ocrResult.text, progress: 35 }
+      });
+
+      console.log(`[WORKER] Parsing bill fields from OCR text...`);
+      extractedFields = await billParser(ocrResult.text);
+    }
     
     // Apply hints from frontend if AI didn't detect
     if (hintProviderId && !extractedFields.providerId) {
@@ -55,10 +82,10 @@ const worker = new Worker('bill-analysis', async (job) => {
     // 5. Run Region Engine
     console.log(`[WORKER] Matching region and tariff model...`);
     const regionResult = await regionEngine(extractedFields);
-    await prisma.bill.update({ where: { id: billId }, data: { progress: 75 } });
 
     // 6. Run Full Analysis (10-engine orchestrator)
     console.log(`[WORKER] Running full analysis orchestrator...`);
+    await prisma.bill.update({ where: { id: billId }, data: { progress: 75 } });
     const analysisResult = await runFullAnalysis({
       extractedFields,
       tariffModel: regionResult.tariffModel,
@@ -71,7 +98,13 @@ const worker = new Worker('bill-analysis', async (job) => {
       userId: bill.userId
     });
 
-    // 7. Update DB completed
+    // 7. Generate AI narrative (non-blocking — failure doesn't fail the job)
+    console.log(`[WORKER] Generating AI narrative...`);
+    await prisma.bill.update({ where: { id: billId }, data: { progress: 92 } });
+    const aiNarrative = await generateNarrative(analysisResult);
+    if (aiNarrative) analysisResult.aiNarrative = aiNarrative;
+
+    // 8. Update DB completed
     console.log(`[WORKER] Saving results to database...`);
     await prisma.bill.update({
       where: { id: billId },
@@ -79,11 +112,11 @@ const worker = new Worker('bill-analysis', async (job) => {
         status: 'completed',
         progress: 100,
         analysisResult,
-        confidenceLevel: analysisResult.confidenceLevel || ocrResult.confidence,
+        confidenceLevel: analysisResult.confidenceLevel || null,
       }
     });
 
-    // 8. Trigger report generation if paid
+    // 9. Trigger report generation if paid
     if (bill.paid) {
       await generateReport(bill, analysisResult);
     }

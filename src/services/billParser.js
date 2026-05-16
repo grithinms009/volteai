@@ -59,25 +59,33 @@ ${PROVIDER_HINTS}
    - Look for addresses, circle names, division names, sub-division codes
    - Indian states: Kerala (KL), Maharashtra (MH), Karnataka (KA), Tamil Nadu (TN), Delhi (DL), Gujarat (GJ), etc.
    - Look for pin codes (6 digits) to identify location
-3. **Consumption Data**:
-   - Units consumed = Current Reading - Previous Reading
-   - Look for "kWh", "Units", "Consumption" labels
-   - May be shown as "Energy Charges" breakdown
-4. **Charges Breakdown**:
-   - Fixed Charge / Service Charge / Meter Rent
-   - Energy Charge (variable, based on units)
-   - Fuel Surcharge / FAC / FPPCA
-   - Electricity Duty (usually % of energy charge)
+3. **Consumption Data — CRITICAL**:
+   - Units consumed = Current Reading - Previous Reading. ALWAYS compute this if both readings are present.
+   - KSEB / Kerala bills: look for a reading table with columns "Initial Reading(IR)" (= previousReading), "Final Reading(FR)" (= currentReading), and "Units*" (= unitsConsumed). The "Units*" column value IS the units consumed.
+   - Also look for labels: "kWh", "Units", "Consumption", "Net Units", "Energy Consumed"
+   - Bi-Monthly bills: billing period is ~60 days; units figure may be for 2 months
+4. **Total Amount — CRITICAL**:
+   - The final payable amount may be labeled: "Total Amt.", "Net Payable", "Amount Payable", "Total Amount Due", "Grand Total"
+   - KSEB format: "Total Amt.(Bill#XXXXXXXX)(a+b+c+e)  1759.00" — the number at the end is totalAmount; ignore the formula in parentheses
+   - The total BEFORE surcharge/arrears adjustments is the base bill; use the final payable amount (after "Less paid/adj.", surcharge etc.) as totalAmount
+   - Do NOT confuse "Last Paid Amount" with totalAmount
+5. **Charges Breakdown**:
+   - Fixed Charge / Fixed Charge[FC] / Service Charge / Meter Rent / Demand Charge
+   - Energy Charge / Energy Charge[EC] (variable, based on units)
+   - Fuel Surcharge / FAC / FPPCA / Auto Recovery FS[FSM]
+   - Electricity Duty / Electricity Duty[ED] (usually % of energy charge)
    - Taxes (GST, cess, surcharges)
+   - Meter Rent[MR] — add to fixedCharge if no separate field
    - Subsidies (government subsidies shown as negative)
-5. **Tariff Detection**:
+6. **Tariff Detection**:
    - Slab rates: Look for "0-50 units @ ₹X", "51-100 units @ ₹Y" patterns
    - ToD/Peak hours: Look for "Peak", "Off-Peak", "Normal" time mentions
    - Demand charges: Look for "kVA", "Demand", "Contract Demand"
-6. **Dates**: 
-   - Billing period (From Date - To Date)
-   - Due Date / Last Date for Payment
-   - Reading dates
+7. **Dates**: 
+   - Billing period: use "Prev. Rdg. Date" or "Last Billed Rdg. Date" as billingPeriodStart; "Prst. Rdg. Date" or current reading date as billingPeriodEnd
+   - Also look for explicit "Billing Period", "From Date – To Date" labels
+   - Due Date / Last Date for Payment / DC Date
+   - billingDays = difference in days between billingPeriodStart and billingPeriodEnd
 
 ## OUTPUT FORMAT:
 Return ONLY a valid JSON object. Use null for fields you cannot find. Be precise with numbers.
@@ -124,7 +132,7 @@ Return ONLY a valid JSON object. Use null for fields you cannot find. Be precise
 - "low": Missing critical fields
 
 ## BILL TEXT TO ANALYZE:
-${rawText.substring(0, 4000)}
+${rawText.substring(0, 6000)}
 
 Return ONLY the JSON object, no explanations.`;
 }
