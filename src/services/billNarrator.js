@@ -47,23 +47,28 @@ async function generateNarrative(analysisResult) {
   }
 
   console.log('[NARRATOR] Generating AI narrative with Ollama...');
-  const ollamaUrl = `${config.ollamaBaseUrl}/api/generate`;
-  const model = process.env.OLLAMA_NARRATOR_MODEL || process.env.OLLAMA_MODEL || 'llama3.1:8b';
+  const model = process.env.OLLAMA_NARRATOR_MODEL || process.env.OLLAMA_MODEL || 'qwen2.5:7b';
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NARRATOR_TIMEOUT_MS);
 
   try {
-    const response = await fetch(ollamaUrl, {
+    const response = await fetch(`${config.ollamaBaseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        prompt: buildNarratorPrompt(analysisResult),
+        messages: [
+          {
+            role: 'system',
+            content: 'You are VoltSave AI, a friendly electricity bill expert. Write concise, warm, plain-text summaries for customers. No markdown, no bullet points, no headings. Under 180 words.'
+          },
+          { role: 'user', content: buildNarratorPrompt(analysisResult) }
+        ],
         stream: false,
-        options: { temperature: 0.65, num_predict: 512 }
+        options: { temperature: 0.65, num_predict: 512, num_ctx: 4096 }
       }),
-      signal: controller.signal,
+      signal: controller.signal
     });
 
     clearTimeout(timer);
@@ -73,7 +78,7 @@ async function generateNarrative(analysisResult) {
     }
 
     const data = await response.json();
-    const narrative = typeof data.response === 'string' ? data.response.trim() : null;
+    const narrative = (data.message?.content || data.response || '').trim() || null;
 
     if (!narrative) throw new Error('Empty narrative response');
 

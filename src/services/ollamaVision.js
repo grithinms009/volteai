@@ -65,7 +65,7 @@ async function extractWithOllamaVision(filePath) {
   const base64Image = imageBuffer.toString('base64');
 
   const ollamaUrl = `${config.ollamaBaseUrl}/api/generate`;
-  const model = process.env.OLLAMA_VISION_MODEL || 'llava:7b';
+  const model = process.env.OLLAMA_VISION_MODEL || 'moondream';
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);

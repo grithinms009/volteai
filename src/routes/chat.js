@@ -64,17 +64,7 @@ async function chatRoutes(fastify) {
 
     const systemContext = buildChatSystemContext(bill.analysisResult);
 
-    // Build conversation history if provided (max last 6 turns)
-    const historyText = Array.isArray(history) && history.length > 0
-      ? history.slice(-6).map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n')
-      : '';
-
-    const fullPrompt = historyText
-      ? `${systemContext}\n\nConversation so far:\n${historyText}\n\nUser: ${question.trim()}\n\nAssistant:`
-      : `${systemContext}\n\nUser: ${question.trim()}\n\nAssistant:`;
-
-    const ollamaUrl = `${config.ollamaBaseUrl}/api/generate`;
-    const model = process.env.OLLAMA_CHAT_MODEL || process.env.OLLAMA_MODEL || 'llama3.1:8b';
+    const model = process.env.OLLAMA_CHAT_MODEL || process.env.OLLAMA_MODEL || 'qwen2.5:7b';
 
     // Set SSE headers
     reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -88,14 +78,30 @@ async function chatRoutes(fastify) {
     };
 
     try {
-      const ollamaRes = await fetch(ollamaUrl, {
+      // Build messages array for /api/chat
+      const messages = [
+        { role: 'system', content: systemContext }
+      ];
+
+      // Inject prior conversation history
+      if (Array.isArray(history) && history.length > 0) {
+        history.slice(-6).forEach(h => {
+          if (h.role === 'user' || h.role === 'assistant') {
+            messages.push({ role: h.role, content: h.content });
+          }
+        });
+      }
+
+      messages.push({ role: 'user', content: question.trim() });
+
+      const ollamaRes = await fetch(`${config.ollamaBaseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          prompt: fullPrompt,
+          messages,
           stream: true,
-          options: { temperature: 0.7, num_predict: 512, stop: ['\nUser:', '\n\nUser:'] }
+          options: { temperature: 0.7, num_predict: 512, num_ctx: 4096 }
         })
       });
 
@@ -115,12 +121,9 @@ async function chatRoutes(fastify) {
           if (!line.trim()) continue;
           try {
             const parsed = JSON.parse(line);
-            if (parsed.response) {
-              sendEvent({ token: parsed.response });
-            }
-            if (parsed.done) {
-              sendEvent({ done: true, model });
-            }
+            const token = parsed.message?.content || parsed.response || '';
+            if (token) sendEvent({ token });
+            if (parsed.done) sendEvent({ done: true, model });
           } catch {}
         }
       }
@@ -129,7 +132,8 @@ async function chatRoutes(fastify) {
       if (buffer.trim()) {
         try {
           const parsed = JSON.parse(buffer);
-          if (parsed.response) sendEvent({ token: parsed.response });
+          const token = parsed.message?.content || parsed.response || '';
+          if (token) sendEvent({ token });
           if (parsed.done) sendEvent({ done: true, model });
         } catch {}
       }

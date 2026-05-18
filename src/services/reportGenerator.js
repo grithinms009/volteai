@@ -9,29 +9,39 @@ async function generateReport(bill, analysisResult) {
   console.log(`[REPORT] Generating PDF for bill ${bill.id}...`);
 
   try {
-    // 1. Get narrative from Ollama
-    const narrative = await rewriteInsights(analysisResult);
+    // 1. Get narrative — use cached aiNarrative if available, else generate fresh
+    const narrative = analysisResult.aiNarrative || await rewriteInsights(analysisResult);
 
     // 2. Read template
     let html = fs.readFileSync(path.join(__dirname, '../templates/report.html'), 'utf8');
 
     // 3. Prepare color for score
+    const score = analysisResult.efficiencyScore || 0;
     let scoreColor = '#ecfdf5'; // green
-    if (analysisResult.efficiencyScore < 40) scoreColor = '#fee2e2'; // red
-    else if (analysisResult.efficiencyScore < 70) scoreColor = '#fef3c7'; // yellow
+    if (score < 40) scoreColor = '#fee2e2'; // red
+    else if (score < 70) scoreColor = '#fef3c7'; // yellow
 
-    // 4. Inject variables
+    // 4. Normalise recommendations — support both old flat array and new engine shape
+    const recsSource = analysisResult.recommendationsData?.recommendations ||
+      analysisResult.recommendationsDetailed ||
+      analysisResult.recommendations || [];
+    const recsArray = recsSource.map(r => (typeof r === 'string' ? r : r.title || r.text || ''));
+
+    // 5. Inject variables
     const replacements = {
       billId: bill.id,
       date: new Date().toLocaleDateString(),
-      efficiencyScore: analysisResult.efficiencyScore,
-      scoreColor: scoreColor,
-      monthlySavings: analysisResult.monthlySavingsEstimate,
-      annualSavings: analysisResult.annualSavingsEstimate,
-      effectiveRate: analysisResult.effectiveRate,
+      providerName: analysisResult.providerName || 'Unknown Provider',
+      unitsConsumed: analysisResult.unitsConsumed || 'N/A',
+      totalAmount: analysisResult.totalAmount || 'N/A',
+      efficiencyScore: score,
+      scoreColor,
+      monthlySavings: analysisResult.monthlySavingsEstimate || 0,
+      annualSavings: analysisResult.annualSavingsEstimate || 0,
+      effectiveRate: analysisResult.effectiveRate || 'N/A',
       currency: analysisResult.effectiveRateCurrency || 'INR',
-      usageIntensity: analysisResult.usageIntensity,
-      profileType: bill.profileType.replace('_', ' '),
+      usageIntensity: analysisResult.usageIntensity || 'medium',
+      profileType: (bill.profileType || 'residential').replace('_', ' '),
       narrative: narrative.replace(/\n/g, '<br>')
     };
 
@@ -41,7 +51,7 @@ async function generateReport(bill, analysisResult) {
     });
 
     // Handle recommendations list
-    const recsHtml = analysisResult.recommendations.map(r => `<li class="recommendation-item">${r}</li>`).join('');
+    const recsHtml = recsArray.map(r => `<li class="recommendation-item">${r}</li>`).join('');
     html = html.replace('{{#recommendations}}<li class="recommendation-item">{{.}}</li>{{/recommendations}}', recsHtml);
 
     // 5. Launch Puppeteer
