@@ -5,9 +5,16 @@ const providers = require('../data/providers');
 const OLLAMA_TIMEOUT_MS = 45000;
 const CLAUDE_TIMEOUT_MS = 60000;
 
-const anthropic = new Anthropic({
-  apiKey: config.anthropicApiKey,
-});
+const PLACEHOLDER_KEYS = ['your_anthropic_key_here', 'sk-placeholder', 'your-key-here', ''];
+const isRealKey = (k) => k && k.startsWith('sk-') && !PLACEHOLDER_KEYS.includes(k);
+
+let _anthropic = null;
+function getAnthropicClient() {
+  if (!_anthropic && isRealKey(config.anthropicApiKey)) {
+    _anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
+  }
+  return _anthropic;
+}
 
 const DEFAULTS = {
   providerName: null,
@@ -140,6 +147,8 @@ Return ONLY the JSON object, no explanations.`;
 async function extractWithClaude(rawText) {
   console.log(`[PARSER] Extracting with Claude API...`);
   
+  const anthropic = getAnthropicClient();
+  if (!anthropic) throw new Error('Anthropic client not configured');
   const response = await anthropic.messages.create({
     model: "claude-3-5-sonnet-20241022",
     max_tokens: 2048,
@@ -290,7 +299,7 @@ async function billParser(rawText) {
   let extracted = null;
   let method = 'none';
 
-  if (config.anthropicApiKey) {
+  if (isRealKey(config.anthropicApiKey)) {
     try {
       extracted = await extractWithClaude(rawText);
       method = 'claude';
