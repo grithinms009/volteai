@@ -2,7 +2,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const config = require('../config');
 const providers = require('../data/providers');
 
-const OLLAMA_TIMEOUT_MS = 45000;
+const OLLAMA_TIMEOUT_MS = 180000;
 const CLAUDE_TIMEOUT_MS = 60000;
 
 const PLACEHOLDER_KEYS = ['your_anthropic_key_here', 'sk-placeholder', 'your-key-here', ''];
@@ -174,7 +174,7 @@ async function extractWithOllama(rawText) {
   console.log(`[PARSER] Extracting with Ollama...`);
   
   const ollamaUrl = `${config.ollamaBaseUrl}/api/generate`;
-  const model = process.env.OLLAMA_MODEL || 'llama3.1:8b';
+  const model = process.env.OLLAMA_EXTRACTION_MODEL || process.env.OLLAMA_MODEL || 'phi3:mini';
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
