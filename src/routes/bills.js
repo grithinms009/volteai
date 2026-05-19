@@ -7,6 +7,17 @@ const { billAnalysisQueue } = require('../queue');
 const config = require('../config');
 
 const ALLOWED_PROFILES = ['home', 'home-office', 'small-shop', 'office'];
+const PROFILE_ALIASES = {
+  residential: 'home',
+  household: 'home',
+  domestic: 'home',
+  commercial: 'office',
+  business: 'office',
+  shop: 'small-shop',
+  store: 'small-shop',
+  'home_office': 'home-office',
+  'small_shop': 'small-shop',
+};
 
 function shapeAnalysisResult(bill) {
   if (!bill.analysisResult) return null;
@@ -34,7 +45,8 @@ async function billRoutes(fastify) {
       return reply.code(400).send({ error: 'Invalid file type. Only PDF and images allowed.' });
     }
 
-    let profileType = data.fields.profileType?.value || 'home';
+    let profileType = (data.fields.profileType?.value || 'home').toLowerCase().trim();
+    profileType = PROFILE_ALIASES[profileType] || profileType;
     if (!ALLOWED_PROFILES.includes(profileType)) {
       return reply.code(400).send({ error: `profileType must be one of ${ALLOWED_PROFILES.join(', ')}` });
     }
